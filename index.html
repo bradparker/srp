@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>SRP</title>
+    <meta charset="utf8" />
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 1rem;
+      }
+
+      .exchange {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        grid-template-columns: 50% 50%;
+        grid-gap: 1rem;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-weight: bold;
+      }
+
+      h1 {
+        font-size: 2rem;
+        margin: 0 0 1rem;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+        margin: 0;
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        margin: 0;
+      }
+
+      pre {
+        max-width: 100%;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: whitesmoke;
+      }
+
+      .exchange h2 {
+        grid-row-start: 1;
+      }
+
+      .actor {
+        grid-row: 2 / span 1;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      .actor h2 {
+        grid-row-start: 1;
+      }
+      .actor pre {
+        grid-row-start: 2;
+      }
+
+      .client {
+        grid-column-start: 1;
+      }
+      .server {
+        grid-column-start: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Secure remote password
+    </h1>
+
+    <section class="exchange">
+      <h2>Registration</h2>
+
+      <div id="client-registration" class="actor">
+        <h3>Client</h3>
+        <pre></pre>
+      </div>
+
+      <div id="host-registration" class="actor">
+        <h3>Host</h3>
+        <pre></pre>
+      </div>
+    </section>
+
+    <section class="exchange">
+      <h2>Authentication</h2>
+
+      <div id="client-authorization" class="actor">
+        <h3>Client</h3>
+        <pre></pre>
+      </div>
+
+      <div id="host-authorization" class="actor">
+        <h3>Host</h3>
+        <pre></pre>
+      </div>
+    </section>
+
+    <script type="module">
+      import { modPow } from "https://unpkg.com/bigint-mod-arith@1.3.1/src/main.js";
+
+      const random = (size) =>
+        byteArrayToBigInt(crypto.getRandomValues(new Uint8Array(size)));
+
+      const stringToBigInt = (str) =>
+        byteArrayToBigInt(new TextEncoder("utf8").encode(str));
+
+      const byteArrayToBigInt = (arr) =>
+        arr.reduce((acc, n) => acc * 256n + BigInt(n), 0n);
+
+      const bigIntToByteArray = (int) => {
+        let n = int;
+        let result = [];
+        while (n !== 0n) {
+          result.push(n % 256n);
+          n = n / 256n;
+        }
+        return Uint8Array.from(result.reverse(), Number);
+      };
+
+      const concat = (a, b) => {
+        const c = new Uint8Array(a.length + b.length);
+        c.set(a);
+        c.set(b, a.length);
+        return c;
+      };
+
+      const report = (element) => (description, properties) => {
+        const newInformation = JSON.stringify(
+          Object.fromEntries(
+            Object.entries(properties).map(([key, value]) => [
+              key,
+              value.toString(16),
+            ])
+          ),
+          null,
+          2
+        );
+        element.appendChild(document.createTextNode(description + "\n"));
+        element.appendChild(document.createTextNode(newInformation + "\n\n"));
+      };
+
+      const reportClientRegistration = report(
+        document.getElementById("client-registration").querySelector("pre")
+      );
+      const reportHostRegistration = report(
+        document.getElementById("host-registration").querySelector("pre")
+      );
+
+      const reportClientAuthorization = report(
+        document.getElementById("client-authorization").querySelector("pre")
+      );
+      const reportHostAuthorization = report(
+        document.getElementById("host-authorization").querySelector("pre")
+      );
+
+      const main = async () => {
+        const N = BigInt(
+          `0x
+          FFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1 29024E08
+          8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD EF9519B3 CD3A431B
+          302B0A6D F25F1437 4FE1356D 6D51C245 E485B576 625E7EC6 F44C42E9
+          A637ED6B 0BFF5CB6 F406B7ED EE386BFB 5A899FA5 AE9F2411 7C4B1FE6
+          49286651 ECE45B3D C2007CB8 A163BF05 98DA4836 1C55D39A 69163FA8
+          FD24CF5F 83655D23 DCA3AD96 1C62F356 208552BB 9ED52907 7096966D
+          670C354E 4ABC9804 F1746C08 CA18217C 32905E46 2E36CE3B E39E772C
+          180E8603 9B2783A2 EC07A28F B5C55DF0 6F4C52C9 DE2BCBF6 95581718
+          3995497C EA956AE5 15D22618 98FA0510 15728E5A 8AAAC42D AD33170D
+          04507A33 A85521AB DF1CBA64 ECFB8504 58DBEF0A 8AEA7157 5D060C7D
+          B3970F85 A6E1E4C7 ABF5AE8C DB0933D7 1E8C94E0 4A25619D CEE3D226
+          1AD2EE6B F12FFA06 D98A0864 D8760273 3EC86A64 521F2B18 177B200C
+          BBE11757 7A615D6C 770988C0 BAD946E2 08E24FA0 74E5AB31 43DB5BFC
+          E0FD108E 4B82D120 A9210801 1A723C12 A787E6D7 88719A10 BDBA5B26
+          99C32718 6AF4E23C 1A946834 B6150BDA 2583E9CA 2AD44CE8 DBBBC2DB
+          04DE8EF9 2E8EFC14 1FBECAA6 287C5947 4E6BC05D 99B2964F A090C3A2
+          233BA186 515BE7ED 1F612970 CEE2D7AF B81BDD76 2170481C D0069127
+          D5B05AA9 93B4EA98 8D8FDDC1 86FFB7DC 90A6C08F 4DF435C9 34063199
+          FFFFFFFF FFFFFFFF
+        `.replace(/\s/g, "")
+        );
+        const g = 5n;
+        const H_id = "SHA-256";
+        const H = async (...ns) =>
+          byteArrayToBigInt(
+            new Uint8Array(
+              await crypto.subtle.digest(
+                H_id,
+                ns.map(bigIntToByteArray).reduce(concat)
+              )
+            )
+          );
+
+        const k = await H(N, g);
+
+        // BEGIN Registration
+
+        const clientname = "brad";
+        const password = "Foobar123";
+
+        const I = stringToBigInt(clientname);
+        const p = stringToBigInt(password);
+        reportClientRegistration("Has a username (I) and password (p)", {
+          I,
+          p,
+        });
+
+        const s = random(16);
+        reportClientRegistration("Generates a random salt (s)", {
+          s,
+        });
+
+        const x = await H(s, p);
+        reportClientRegistration("Computes x from s and p", {
+          x,
+        });
+
+        const v = modPow(g, x, N);
+        reportClientRegistration("Computes a verifier (v) from x", {
+          v,
+        });
+
+        reportHostRegistration("Is sent the Client's I, s, and v", {
+          I,
+          s,
+          v,
+        });
+
+        // END Registration
+
+        // BEGIN Authorization
+
+        const a = random(32);
+        reportClientAuthorization("Generates random value a", { a });
+
+        const A = modPow(g, a, N);
+        reportClientAuthorization("Computes A from a", { A });
+
+        reportHostAuthorization("Is sent the Client's A", { A });
+
+        if (A % N === 0n) {
+          throw new Error("A (mod N) cannot be 0n");
+        }
+
+        const b = random(32);
+        reportHostAuthorization("Generates a random value b", { b });
+
+        const B = k * v + modPow(g, b, N);
+        reportHostAuthorization("Computes B from b", { B });
+
+        reportClientAuthorization("Is sent the Host's B", { B });
+
+        const u = await H(A, B);
+        reportHostAuthorization("Computes u from A and B", { u });
+        reportClientAuthorization("Computes u from A and B", { u });
+
+        if (B % N == 0n) {
+          throw new Error("B (mod N) cannot be 0n");
+        }
+
+        reportClientAuthorization("Re-computes x from s and p", { x });
+
+        const S_c = modPow(B - k * modPow(g, x, N), a + u * x, N);
+        reportClientAuthorization("Computes S from B, a, u and x", { S_c });
+
+        const K_c = await H(S_c);
+        reportClientAuthorization("Computes K by hashing S", { K_c });
+
+        const S_h = modPow(A * modPow(v, u, N), b, N);
+        reportHostAuthorization("Computes S from A, v, u and b", { S_h });
+
+        const K_h = await H(S_h);
+        reportHostAuthorization("Computes K by hashing S", { K_h });
+
+        const M_c = await H(
+          (await H(N)) ^ (await H(g)),
+          await H(I),
+          s,
+          A,
+          B,
+          K_c
+        );
+        reportClientAuthorization("Computes M with I, s, A, B and K", { M_c });
+
+        reportHostAuthorization("Is sent the Client's M", { M_c });
+
+        const M_h = await H(
+          (await H(N)) ^ (await H(g)),
+          await H(I),
+          s,
+          A,
+          B,
+          K_h
+        );
+        reportHostAuthorization("Computes M from I, s, A, B and K", { M_h });
+
+        reportHostAuthorization(
+          "Validates that its computed M and the Client's M match",
+          { M_h, M_c, valid: M_c == M_h }
+        );
+        if (M_c !== M_h) {
+          throw new Error("Client M does not match Host M");
+        }
+
+        const P_h = await H(A, M_c, K_h);
+        reportHostAuthorization("Computes a proof (P) from A, M and K", {
+          P_h,
+        });
+
+        reportClientAuthorization("Is sent the Host's P", { P_h });
+
+        const P_c = await H(A, M_c, K_c);
+        reportClientAuthorization("Computes P from A, M and K", { P_c });
+
+        reportClientAuthorization(
+          "Validates that its computed P and the Host's P match",
+          { P_h, P_c, valid: P_c == P_h }
+        );
+        if (P_h !== P_c) {
+          throw new Error("Host P does not match Client P");
+        }
+      };
+
+      main();
+    </script>
+  </body>
+</html>
